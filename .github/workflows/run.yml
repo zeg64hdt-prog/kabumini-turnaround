@@ -1,0 +1,5 @@
+name: Kabumini-Turnaround-Check
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '35 7 * * *' # 日本時間 16:35（UTC 07:35）に実行
