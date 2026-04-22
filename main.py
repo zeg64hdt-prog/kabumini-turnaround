@@ -3,6 +3,9 @@ from datetime import datetime, timedelta, timezone
 
 JST = timezone(timedelta(hours=+9), 'JST')
 
+# (analyze_fundamentals, judge_turnaround, send_line は上記と同様)
+# ※ CSVの読み込み先とタイトルの表示のみ株ミニ用に最適化しています。
+
 def analyze_fundamentals(t_obj):
     score = 0
     try:
@@ -18,22 +21,22 @@ def analyze_fundamentals(t_obj):
 def judge_turnaround(ticker_code, name):
     try:
         t_obj = yf.Ticker(f"{ticker_code}.T")
-        data = t_obj.history(period="1y") 
+        data = t_obj.history(period="1y", interval="1d") 
         if data.empty or len(data) < 75: return None
         close, vol = data['Close'], data['Volume']
         p_now, p_pre = float(close.iloc[-1]), float(close.iloc[-2])
-
-        # --- 【流動性フィルター】 ---
-        avg_vol = vol.tail(5).mean()
-        if avg_vol < 50000 and (p_now * avg_vol) < 50000000: return None
-
+        avg_vol_5 = vol.tail(5).mean()
+        if avg_vol_5 < 50000 and (p_now * avg_vol_5) < 50000000: return None
+        avg_vol_25 = vol.tail(25).mean()
+        recent_vol_3 = vol.tail(3).mean()
+        if recent_vol_3 > avg_vol_25 * 0.8: return None
+        star = analyze_fundamentals(t_obj)
+        if len(star) < 2: return None
         ma75 = close.rolling(75).mean()
         m75_now, m75_pre = ma75.iloc[-1], ma75.iloc[-2]
-        v_avg = vol.shift(1).rolling(5).mean().iloc[-1]
-
-        if p_pre <= m75_pre and p_now > m75_now and vol.iloc[-1] > v_avg * 1.2:
-            star = analyze_fundamentals(t_obj)
-            return f"💎【転換】{star}{ticker_code} {name}({p_now:.0f}円)"
+        if p_now > m75_now:
+            if p_pre <= m75_pre or (p_now > m75_now and recent_vol_3 < avg_vol_25 * 0.7):
+                return f"🌟【充填】{star}{ticker_code} {name}({p_now:.0f}円)"
         return None
     except: return None
 
@@ -47,7 +50,8 @@ def send_line(message):
         time.sleep(1)
 
 def main():
-    if not os.path.exists("kabumini.csv"): return
+    if not os.path.exists("kabumini.csv"): # 株ミニ用のCSVを参照
+        print("kabumini.csvが見つかりません"); return
     df = pd.read_csv("kabumini.csv", encoding='utf-8-sig')
     c_col = [c for c in df.columns if 'コード' in str(c) or 'Code' in str(c)][0]
     n_col = [c for c in df.columns if '銘柄' in str(c) or '名称' in str(c)][0]
@@ -61,6 +65,7 @@ def main():
         if (i+1)%15 == 0: time.sleep(0.05)
     now_jst = datetime.now(JST)
     msg = f"🔄 夕方：株ミニ転換判定({now_jst.strftime('%m/%d %H:%M')})\n"
+    msg += "条件: ★★以上 / 75日線突破 / 出来高静止中\n\n"
     msg += "\n".join(res) if res else "該当なし"
     send_line(msg)
 
